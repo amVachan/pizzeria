@@ -1,0 +1,82 @@
+version: "3"
+
+services:
+  db:
+    image: mysql:latest
+    environment:
+      MYSQL_ROOT_PASSWORD: mypassword
+      MYSQL_DATABASE: pizzeria
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 10s
+      retries: 3
+    networks:
+      - mynet
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      sh -c "python3 manage.py migrate &&
+             python3 manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PORT: 3306
+      DATABASE_NAME: pizzeria
+      DATABASE_USER: root
+      DATABASE_PASSWORD: mypassword
+      CELERY_BROKER_URL: redis://redis:6379/0
+    networks:
+      - mynet
+
+  celery-worker:
+    image: celery:latest
+    command: celery -A pizzeria worker --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      - web
+    working_dir: /app
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      DJANGO_SETTINGS_MODULE: pizzeria.settings
+    networks:
+      - mynet
+
+  celery-beat:
+    image: celery:latest
+    command: celery -A pizzeria beat --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      - web
+    working_dir: /app
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      DJANGO_SETTINGS_MODULE: pizzeria.settings
+    networks:
+      - mynet
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    networks:
+      - mynet
+
+networks:
+  mynet:
+
+volumes:
+  db_data:
